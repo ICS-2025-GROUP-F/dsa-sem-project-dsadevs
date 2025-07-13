@@ -8,6 +8,7 @@ class ToDoApp:
         self.tasks = {}  # Task ID: Task Name
         self.completed_stack = []  # Stack
         self.task_id = 1
+        self.task_id = 1
 
         # --- UI Elements ---
         self.task_entry = tk.Entry(root, width=40)
