@@ -4,7 +4,6 @@ from collections import deque
 import json
 
 
-# ==================== Data Structure Classes ====================
 class QueueToDo:
     def __init__(self):
         self.tasks = deque()
@@ -17,6 +16,13 @@ class QueueToDo:
 
     def get_all_tasks(self):
         return list(self.tasks)
+
+    def remove_task(self, task):
+        try:
+            self.tasks.remove(task)
+            return True
+        except ValueError:
+            return False
 
     def clear(self):
         self.tasks.clear()
@@ -37,14 +43,29 @@ class StackToDo:
             return completed
         return None
 
+    def undo_completion(self):
+        if self.completed_stack:
+            task = self.completed_stack.pop()
+            self.tasks.append(task)
+            return task
+        return None
+
     def get_all_tasks(self):
         return self.tasks.copy()
 
     def get_history(self):
         return self.completed_stack.copy()
 
+    def remove_task(self, task):
+        try:
+            self.tasks.remove(task)
+            return True
+        except ValueError:
+            return False
+
     def clear(self):
         self.tasks.clear()
+        self.completed_stack.clear()
 
 
 class LinkedListToDo:
@@ -95,6 +116,24 @@ class LinkedListToDo:
             current = current.next
         return tasks
 
+    def remove_task(self, task):
+        if not self.head:
+            return False
+
+        if self.head.task == task:
+            self.head = self.head.next
+            self.size -= 1
+            return True
+
+        current = self.head
+        while current.next:
+            if current.next.task == task:
+                current.next = current.next.next
+                self.size -= 1
+                return True
+            current = current.next
+        return False
+
     def clear(self):
         self.head = None
         self.size = 0
@@ -110,6 +149,7 @@ class BSTToDo:
 
     def __init__(self):
         self.root = None
+        self.completed_tasks = []
 
     def add_task(self, priority, task):
         self.root = self._insert(self.root, priority, task)
@@ -133,6 +173,7 @@ class BSTToDo:
             parent.right = current.left
         else:
             self.root = current.left
+        self.completed_tasks.append(current.task)
         return current.task
 
     def get_all_tasks(self):
@@ -146,16 +187,30 @@ class BSTToDo:
             tasks.append(f"P{node.priority}: {node.task}")
             self._inorder(node.left, tasks)
 
+    def remove_task(self, task):
+        all_tasks = self.get_all_tasks()
+        new_tasks = [t for t in all_tasks if not t.endswith(task)]
+
+        self.root = None
+        for task_str in new_tasks:
+            try:
+                priority_str, task_content = task_str.split(": ", 1)
+                priority = int(priority_str[1:])
+                self.add_task(priority, task_content)
+            except:
+                continue
+        return task in [t.split(": ", 1)[1] for t in all_tasks]
+
     def clear(self):
         self.root = None
+        self.completed_tasks = []
 
 
-# ==================== Main Application ====================
 class ToDoApp:
     def __init__(self, root):
         self.root = root
         self.root.title("Data Structures To-Do App")
-        self.root.geometry("900x650")
+        self.root.geometry("1000x750")
         self.root.configure(bg="#f5f5f5")
 
         # Color palette
@@ -175,13 +230,9 @@ class ToDoApp:
         self.stack = StackToDo()
         self.linked_list = LinkedListToDo()
         self.bst = BSTToDo()
-        self.current_ds = "Queue"
-        self.ds_map = {
-            "Queue": self.queue,
-            "Stack": self.stack,
-            "Linked List": self.linked_list,
-            "BST": self.bst
-        }
+
+        # Global history tracking
+        self.completed_history = []
 
         # Priority variable for BST
         self.priority_var = tk.IntVar(value=1)
@@ -203,26 +254,6 @@ class ToDoApp:
             fg="white"
         ).pack(side=tk.LEFT, padx=10, pady=10)
 
-        # Mode selection
-        mode_frame = tk.Frame(header_frame, bg=self.colors["primary"])
-        mode_frame.pack(side=tk.RIGHT, padx=10)
-
-        tk.Label(
-            mode_frame,
-            text="Mode:",
-            font=("Segoe UI", 10),
-            bg=self.colors["primary"],
-            fg="white"
-        ).pack(side=tk.LEFT)
-
-        self.mode_var = tk.StringVar(value="Queue")
-        modes = ["Queue", "Stack", "Linked List", "BST"]
-        mode_menu = ttk.OptionMenu(
-            mode_frame, self.mode_var, "Queue", *modes, command=self.change_mode
-        )
-        mode_menu.config(width=10)
-        mode_menu.pack(side=tk.LEFT, padx=5)
-
         # Main Content Frame
         content_frame = tk.Frame(self.root, bg=self.colors["light"])
         content_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
@@ -243,8 +274,9 @@ class ToDoApp:
         self.task_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 10))
         self.task_entry.bind("<Return>", lambda e: self.add_task())
 
-        # Priority Frame (only for BST)
+        # Priority Frame (for BST)
         self.priority_frame = tk.Frame(entry_frame, bg=self.colors["light"])
+        self.priority_frame.pack(side=tk.LEFT, padx=(10, 0))
 
         tk.Label(
             self.priority_frame,
@@ -298,54 +330,124 @@ class ToDoApp:
         self.task_list.config(yscrollcommand=scrollbar.set)
         scrollbar.config(command=self.task_list.yview)
 
-        # Button Frame
-        btn_frame = tk.Frame(content_frame, bg=self.colors["light"])
-        btn_frame.pack(fill=tk.X, pady=(10, 0))
+        # DS Operations Frame
+        ds_ops_frame = tk.Frame(content_frame, bg=self.colors["light"])
+        ds_ops_frame.pack(fill=tk.X, pady=(10, 0))
 
-        # Complete Task Button
-        self.complete_btn = tk.Button(
-            btn_frame,
-            text="Complete Next Task",
-            command=self.complete_task,
+        # Queue Operations
+        queue_frame = tk.LabelFrame(ds_ops_frame, text="Queue Operations", bg=self.colors["light"], padx=5, pady=5)
+        queue_frame.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
+
+        tk.Button(
+            queue_frame,
+            text="Complete Next (FIFO)",
+            command=self.complete_queue_task,
             bg=self.colors["primary"],
             fg="white",
-            font=("Segoe UI", 10, "bold"),
+            font=("Segoe UI", 10),
             relief=tk.FLAT,
-            padx=15,
-            activebackground=self.colors["secondary"]
-        )
-        self.complete_btn.pack(side=tk.LEFT, padx=(0, 10))
+            padx=10
+        ).pack(side=tk.LEFT, padx=5)
+
+        # Stack Operations
+        stack_frame = tk.LabelFrame(ds_ops_frame, text="Stack Operations", bg=self.colors["light"], padx=5, pady=5)
+        stack_frame.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
+
+        tk.Button(
+            stack_frame,
+            text="Complete Task (LIFO)",
+            command=self.complete_stack_task,
+            bg=self.colors["primary"],
+            fg="white",
+            font=("Segoe UI", 10),
+            relief=tk.FLAT,
+            padx=10
+        ).pack(side=tk.LEFT, padx=5)
+
+        tk.Button(
+            stack_frame,
+            text="Show History",
+            command=self.show_history,
+            bg=self.colors["secondary"],
+            fg="white",
+            font=("Segoe UI", 10),
+            relief=tk.FLAT,
+            padx=10
+        ).pack(side=tk.LEFT, padx=5)
+
+        tk.Button(
+            stack_frame,
+            text="Undo Completion",
+            command=self.undo_completion,
+            bg=self.colors["warning"],
+            fg="white",
+            font=("Segoe UI", 10),
+            relief=tk.FLAT,
+            padx=10
+        ).pack(side=tk.LEFT, padx=5)
+
+        # Linked List Operations
+        ll_frame = tk.LabelFrame(ds_ops_frame, text="Linked List Operations", bg=self.colors["light"], padx=5, pady=5)
+        ll_frame.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
+
+        tk.Button(
+            ll_frame,
+            text="Complete Selected",
+            command=self.complete_linked_list_task,
+            bg=self.colors["primary"],
+            fg="white",
+            font=("Segoe UI", 10),
+            relief=tk.FLAT,
+            padx=10
+        ).pack(side=tk.LEFT, padx=5)
+
+        # BST Operations
+        bst_frame = tk.LabelFrame(ds_ops_frame, text="BST Operations", bg=self.colors["light"], padx=5, pady=5)
+        bst_frame.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
+
+        tk.Button(
+            bst_frame,
+            text="Complete Highest Priority",
+            command=self.complete_bst_task,
+            bg=self.colors["primary"],
+            fg="white",
+            font=("Segoe UI", 10),
+            relief=tk.FLAT,
+            padx=10
+        ).pack(side=tk.LEFT, padx=5)
+
+        # Common Operations Frame
+        common_ops_frame = tk.Frame(content_frame, bg=self.colors["light"])
+        common_ops_frame.pack(fill=tk.X, pady=(10, 0))
 
         # Clear Button
         clear_btn = tk.Button(
-            btn_frame,
-            text="Clear All",
+            common_ops_frame,
+            text="Clear All Tasks",
             command=self.clear_tasks,
             bg=self.colors["danger"],
             fg="white",
             font=("Segoe UI", 10),
             relief=tk.FLAT,
-            padx=15,
-            activebackground="#d32f2f"
+            padx=15
         )
         clear_btn.pack(side=tk.LEFT, padx=(0, 10))
 
         # Save Button
         save_btn = tk.Button(
-            btn_frame,
+            common_ops_frame,
             text="Save Tasks",
             command=self.save_tasks,
             bg=self.colors["warning"],
             fg="white",
             font=("Segoe UI", 10),
             relief=tk.FLAT,
-            padx=15,
-            activebackground="#f57c00"
+            padx=15
         )
         save_btn.pack(side=tk.LEFT)
 
         # Status Bar
-        self.status_var = tk.StringVar(value="Ready | Tasks: 0 | Mode: Queue")
+        self.status_var = tk.StringVar(value="Ready | Tasks: 0")
         status_bar = tk.Label(
             self.root,
             textvariable=self.status_var,
@@ -357,93 +459,181 @@ class ToDoApp:
         )
         status_bar.pack(fill=tk.X, side=tk.BOTTOM)
 
-        # Initialize
-        self.change_mode()
-
-    def change_mode(self, *args):
-        self.current_ds = self.mode_var.get()
-
-        # Update UI based on mode
-        if self.current_ds == "BST":
-            self.priority_frame.pack(side=tk.LEFT, padx=(10, 0))
-            self.complete_btn.config(text="Complete Highest Priority")
-        else:
-            self.priority_frame.pack_forget()
-
-            if self.current_ds == "Queue":
-                self.complete_btn.config(text="Complete Next Task")
-            elif self.current_ds == "Stack":
-                self.complete_btn.config(text="Complete Last Task")
-            elif self.current_ds == "Linked List":
-                self.complete_btn.config(text="Complete Selected Task")
-
-        self.update_task_list()
-        self.update_status()
-
     def add_task(self):
         task = self.task_entry.get().strip()
         if not task:
             messagebox.showwarning("Warning", "Please enter a task description!")
             return
 
-        if self.current_ds == "BST":
-            priority = self.priority_var.get()
-            self.bst.add_task(priority, task)
-            messagebox.showinfo("Success", f"Added task with priority {priority}")
-        elif self.current_ds == "Linked List":
-            self.linked_list.add_task(task)
-        else:
-            self.ds_map[self.current_ds].add_task(task)
+        # Add to all data structures
+        self.queue.add_task(task)
+        self.stack.add_task(task)
+        self.linked_list.add_task(task)
+
+        # For BST, use the priority value
+        priority = self.priority_var.get()
+        self.bst.add_task(priority, task)
 
         self.task_entry.delete(0, tk.END)
         self.update_task_list()
         self.update_status()
+        messagebox.showinfo("Success", "Task added to all data structures!")
 
-    def complete_task(self):
-        if self.current_ds == "Queue":
-            completed = self.queue.complete_task()
-        elif self.current_ds == "Stack":
-            completed = self.stack.complete_task()
-        elif self.current_ds == "Linked List":
-            selection = self.task_list.curselection()
-            if not selection:
-                messagebox.showwarning("Warning", "Please select a task to complete!")
-                return
-            completed = self.linked_list.complete_task(selection[0])
-        elif self.current_ds == "BST":
-            completed = self.bst.complete_highest_priority()
+    def complete_queue_task(self):
+        completed = self.queue.complete_task()
+        if completed:
+            # Remove from other data structures
+            self.stack.remove_task(completed)
+            self.linked_list.remove_task(completed)
+            self.bst.remove_task(completed)
+
+            # Add to global history
+            self.completed_history.append(("Queue", completed))
+
+            messagebox.showinfo("Queue Task Completed", f"Completed (FIFO): {completed}")
+            self.update_task_list()
+            self.update_status()
+        else:
+            messagebox.showwarning("Warning", "No tasks in queue to complete!")
+
+    def complete_stack_task(self):
+        completed = self.stack.complete_task()
+        if completed:
+            # Remove from other data structures
+            self.queue.remove_task(completed)
+            self.linked_list.remove_task(completed)
+            self.bst.remove_task(completed)
+
+            # Add to global history
+            self.completed_history.append(("Stack", completed))
+
+            messagebox.showinfo("Stack Task Completed", f"Completed (LIFO): {completed}")
+            self.update_task_list()
+            self.update_status()
+        else:
+            messagebox.showwarning("Warning", "No tasks in stack to complete!")
+
+    def complete_linked_list_task(self):
+        selection = self.task_list.curselection()
+        if not selection:
+            messagebox.showwarning("Warning", "Please select a task to complete!")
+            return
+
+        task = self.task_list.get(selection[0])
+        if task.startswith("P") and ": " in task:
+            task = task.split(": ", 1)[1]
+
+        completed = None
+        if task in self.queue.get_all_tasks():
+            completed = task
+            self.queue.remove_task(task)
+        if self.stack.remove_task(task):
+            completed = task
+        if self.linked_list.remove_task(task):
+            completed = task
+        if self.bst.remove_task(task):
+            completed = task
 
         if completed:
+            # Add to global history
+            self.completed_history.append(("Linked List", completed))
+
             messagebox.showinfo("Task Completed", f"Completed: {completed}")
             self.update_task_list()
             self.update_status()
         else:
-            messagebox.showwarning("Warning", "No tasks to complete!")
+            messagebox.showwarning("Warning", "Could not complete the selected task!")
+
+    def complete_bst_task(self):
+        completed = self.bst.complete_highest_priority()
+        if completed:
+            # Remove from other data structures
+            self.queue.remove_task(completed)
+            self.stack.remove_task(completed)
+            self.linked_list.remove_task(completed)
+
+            # Add to global history
+            self.completed_history.append(("BST", completed))
+
+            messagebox.showinfo("BST Task Completed", f"Completed (Highest Priority): {completed}")
+            self.update_task_list()
+            self.update_status()
+        else:
+            messagebox.showwarning("Warning", "No tasks in BST to complete!")
+
+    def show_history(self):
+        if not self.completed_history:
+            messagebox.showinfo("Completion History", "No completed tasks in history!")
+            return
+
+        history_text = "Completion History:\n\n" + "\n".join(
+            f"{i + 1}. {task} (via {method})"
+            for i, (method, task) in enumerate(reversed(self.completed_history)))
+        messagebox.showinfo("Completion History", history_text)
+
+    def undo_completion(self):
+        if not self.completed_history:
+            messagebox.showwarning("Cannot Undo", "No completed tasks to undo!")
+            return
+
+        method, undone_task = self.completed_history.pop()
+
+        # Add back to all data structures
+        self.queue.add_task(undone_task)
+        self.stack.add_task(undone_task)
+        self.linked_list.add_task(undone_task)
+
+        # For BST, use current priority value
+        self.bst.add_task(self.priority_var.get(), undone_task)
+
+        messagebox.showinfo("Undo Successful", f"Task restored: {undone_task} (originally completed via {method})")
+        self.update_task_list()
+        self.update_status()
 
     def clear_tasks(self):
         if messagebox.askyesno("Confirm", "Are you sure you want to clear all tasks?"):
-            self.ds_map[self.current_ds].clear()
+            self.queue.clear()
+            self.stack.clear()
+            self.linked_list.clear()
+            self.bst.clear()
+            self.completed_history.clear()
             self.update_task_list()
             self.update_status()
 
     def update_task_list(self):
         self.task_list.delete(0, tk.END)
 
-        if self.current_ds == "BST":
-            tasks = self.bst.get_all_tasks()
-        else:
-            tasks = self.ds_map[self.current_ds].get_all_tasks()
+        # Get tasks from all structures and combine them
+        queue_tasks = self.queue.get_all_tasks()
+        stack_tasks = self.stack.get_all_tasks()
+        ll_tasks = self.linked_list.get_all_tasks()
+        bst_tasks = self.bst.get_all_tasks()
 
-        for task in tasks:
+        # Create a unified list (prioritizing BST tasks first since they have priority info)
+        all_tasks = []
+
+        # Add BST tasks first (they have priority info)
+        all_tasks.extend(bst_tasks)
+
+        # Add other tasks, avoiding duplicates
+        for task in queue_tasks + stack_tasks + ll_tasks:
+            if task not in [t.split(": ", 1)[-1] for t in all_tasks]:
+                all_tasks.append(task)
+
+        for task in all_tasks:
             self.task_list.insert(tk.END, task)
 
     def update_status(self):
-        if self.current_ds == "BST":
-            count = len(self.bst.get_all_tasks())
-        else:
-            count = len(self.ds_map[self.current_ds].get_all_tasks())
+        # Count unique tasks across all data structures
+        queue_tasks = set(self.queue.get_all_tasks())
+        stack_tasks = set(self.stack.get_all_tasks())
+        ll_tasks = set(self.linked_list.get_all_tasks())
+        bst_tasks = set(t.split(": ", 1)[-1] for t in self.bst.get_all_tasks())
 
-        self.status_var.set(f"Ready | Tasks: {count} | Mode: {self.current_ds}")
+        unique_tasks = queue_tasks.union(stack_tasks).union(ll_tasks).union(bst_tasks)
+        count = len(unique_tasks)
+
+        self.status_var.set(f"Ready | Tasks: {count}")
 
     def save_tasks(self):
         data = {
@@ -453,7 +643,9 @@ class ToDoApp:
                 "history": self.stack.get_history()
             },
             "LinkedList": self.linked_list.get_all_tasks(),
-            "BST": self.bst.get_all_tasks()
+            "BST": self.bst.get_all_tasks(),
+            "BST_Completed": getattr(self.bst, 'completed_tasks', []),
+            "Global_History": self.completed_history
         }
 
         try:
@@ -471,17 +663,13 @@ class ToDoApp:
             # Load queue tasks
             for task in data.get("Queue", []):
                 self.queue.add_task(task)
-
-            # Load stack tasks
-            stack_data = data.get("Stack", {})
-            for task in stack_data.get("tasks", []):
                 self.stack.add_task(task)
+                self.linked_list.add_task(task)
+
+            # Load stack history
+            stack_data = data.get("Stack", {})
             for task in stack_data.get("history", []):
                 self.stack.completed_stack.append(task)
-
-            # Load linked list tasks
-            for task in data.get("LinkedList", []):
-                self.linked_list.add_task(task)
 
             # Load BST tasks
             for task_str in data.get("BST", []):
@@ -491,6 +679,14 @@ class ToDoApp:
                     self.bst.add_task(priority, task)
                 except:
                     continue
+
+            # Load BST completed tasks
+            for task in data.get("BST_Completed", []):
+                if hasattr(self.bst, 'completed_tasks'):
+                    self.bst.completed_tasks.append(task)
+
+            # Load global history
+            self.completed_history = data.get("Global_History", [])
 
             self.update_task_list()
             self.update_status()
